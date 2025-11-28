@@ -5,8 +5,7 @@ import torch
 from torchvision import transforms
 from cyclegan_turbo import CycleGAN_Turbo
 from my_utils.training_utils import build_transform
-from my_utils.training_utils import process_image
-from tqdm import tqdm
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -40,29 +39,20 @@ if __name__ == "__main__":
 
     T_val = build_transform(args.image_prep)
 
-    # 폴더인지 확인 및 처리
-    if os.path.isdir(args.input_image):
-        valid_ext = ['.jpg', '.jpeg', '.png', '.bmp', '.webp']
+    input_image = Image.open(args.input_image).convert('RGB')
+    # translate the image
+    with torch.no_grad():
+        input_img = T_val(input_image)
+        x_t = transforms.ToTensor()(input_img)
+        x_t = transforms.Normalize([0.5], [0.5])(x_t).unsqueeze(0).cuda()
+        if args.use_fp16:
+            x_t = x_t.half()
+        output = model(x_t, direction=args.direction, caption=args.prompt)
 
-        # 폴더 내부 이미지 리스트 생성
-        file_list = [
-            os.path.join(args.input_image, f)
-            for f in os.listdir(args.input_image)
-            if os.path.splitext(f.lower())[1] in valid_ext
-        ]
+    output_pil = transforms.ToPILImage()(output[0].cpu() * 0.5 + 0.5)
+    output_pil = output_pil.resize((input_image.width, input_image.height), Image.LANCZOS)
 
-        print(f"\n📁 Found {len(file_list)} images. Starting batch processing...\n")
-
-        # ⭐ Progress Bar 적용
-        for img_path in tqdm(file_list, desc="Processing images", unit="img"):
-            process_image(
-                model, T_val, img_path, args.output_dir,
-                args.direction, args.prompt, args.use_fp16
-            )
-
-        print("\n✨ All images processed!\n")
-    else:
-        # 단일 이미지 처리
-        process_image(model, T_val, args.input_image, args.output_dir,
-                    args.direction, args.prompt, args.use_fp16)
-
+    # save the output image
+    bname = os.path.basename(args.input_image)
+    os.makedirs(args.output_dir, exist_ok=True)
+    output_pil.save(os.path.join(args.output_dir, bname))
