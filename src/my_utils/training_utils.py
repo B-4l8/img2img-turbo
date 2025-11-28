@@ -8,6 +8,26 @@ from torchvision import transforms
 import torchvision.transforms.functional as F
 from glob import glob
 
+def process_image(model, T_val, input_path, output_dir, direction, prompt, use_fp16):
+    input_image = Image.open(input_path).convert('RGB')
+    input_img = T_val(input_image)
+
+    x_t = transforms.ToTensor()(input_img)
+    x_t = transforms.Normalize([0.5], [0.5])(x_t).unsqueeze(0).cuda()
+    if use_fp16:
+        x_t = x_t.half()
+
+    with torch.no_grad():
+        output = model(x_t, direction=direction, caption=prompt)
+
+    output_pil = transforms.ToPILImage()(output[0].cpu() * 0.5 + 0.5)
+    output_pil = output_pil.resize((input_image.width, input_image.height), Image.LANCZOS)
+
+    os.makedirs(output_dir, exist_ok=True)
+    bname = os.path.basename(input_path)
+    save_path = os.path.join(output_dir, bname)
+    output_pil.save(save_path)
+    print(f"Saved: {save_path}")
 
 def parse_args_paired_training(input_args=None):
     """
@@ -209,6 +229,10 @@ def build_transform(image_prep):
     elif image_prep in ["resize_512", "resize_512x512"]:
         T = transforms.Compose([
             transforms.Resize((512, 512), interpolation=Image.LANCZOS)
+        ])
+    elif image_prep in ["resize_768"]:   # ⬅️ 추가!
+        T = transforms.Compose([
+            transforms.Resize((768, 768), interpolation=Image.LANCZOS)
         ])
     elif image_prep == "no_resize":
         T = transforms.Lambda(lambda x: x)
